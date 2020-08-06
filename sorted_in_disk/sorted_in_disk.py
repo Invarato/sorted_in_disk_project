@@ -132,7 +132,7 @@ def sorted_in_disk(iterable,
         (only execute when count_insert_to_check is reached). If None, then not import psutil and then only
         check with count_insert_to_check. By default: 1024*1024*1024  # 1Gib
     :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
-        and wait for space. If False, then get and IOException if not enough space
+        and wait for space. If False, then get and IOException if not enough space. By defatul: False
     :param max_process: number of process to execute. If None then it is number of CPUs. By default: 0
     :param queue_max_size: (only if max_process!=0) max number of elements in queue. If None then is the max by default.
         By default: 1000

@@ -58,7 +58,7 @@ for value in sorted_in_disk(...):
 ```
 
 
-## Quick how to use in comparison of sorted method
+## Quick "how to use" in comparison with sorted method
 `sorted_in_disk` is similar to oficial `sorted` method (https://docs.python.org/3/library/functions.html#sorted), with
 `iterable`, `key` and `reverse` args. 
 
@@ -126,6 +126,8 @@ Helpers methods public to take advantage of this package (those are not main pac
  * `max_process_size`: max size in bytes to dump cache memory values to disk
         (only execute when `count_insert_to_check` is reached). If None, then not import psutil and then only
         check with `count_insert_to_check`. By default: `1024*1024*1024`   # 1Gib
+ * `ensure_space`: True to ensure disk space but is slowly. If not space then process launch warning message
+           and wait for space. If False, then get and IOException if not enough space. By defatul: `False`
  * `max_process`: number of process to execute. If None then it is number of CPUs. By default: `0`
  * `queue_max_size`: (only if `max_process!=0`) max number of elements in queue. If None then is the max by default.
         By default: `1000`
@@ -133,6 +135,7 @@ Helpers methods public to take advantage of this package (those are not main pac
         By default: `False`
  * `iter_m_queue_max_size`: (only if `enable_multiprocessing` is `True`) max number of elements in queue. If None
         then is the max by default. By default: `1000`
+ * `logging_level`: Level of log. Only to debug or to remove psutil warning. By default: `logging.WARNING`
 
 
 ### Class:
