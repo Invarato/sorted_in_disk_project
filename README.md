@@ -12,11 +12,11 @@ real time while return sorted data to you (in injection time perform a quick and
 
 
 ## Installation from PYPI
-You can find last version of project in: https://pypi.org/project/sort-in-disk/
+You can find last version of project in: https://pypi.org/project/sorted-in-disk/
 
 Command to install:
 ```
-pip install sort-in-disk
+pip install sorted-in-disk
 ```
 
 This project has one dependency (this is auto-imported with PIP): `easy_binary_file`
@@ -268,7 +268,7 @@ In the end on one instance of `SortInDisk can:
     This is enable if `sorted_in_disk` have arg `only_one_read` to `True`.
 
 
-## About performance:
+## About performance
 You can use many times one sorted work from disk (if `only_one_read` is `False`), but this is not a data base. When 
 data is in disk have a minimum sorted work, but it is not finally sort. When you read data perform complete sort in 
 real time (to have sorted data as soon as posible). Due to, if you want use several times sorted work, maybe is good
