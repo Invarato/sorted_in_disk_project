@@ -8,6 +8,7 @@ import sys
 import time
 import multiprocessing
 import gc
+from datetime import datetime
 from pathlib import Path
 import logging
 
@@ -29,6 +30,7 @@ __test__ = {'import_test': """
 
 def sorted_in_disk(iterable,
                    key=None,
+                   value=None,
                    reverse=False,
 
                    tmp_dir=Path("sortInDiskTmps"),
@@ -40,6 +42,8 @@ def sorted_in_disk(iterable,
                    count_insert_to_check=1000000,
                    max_process_size=1024 * 1024 * 1024,
                    ensure_space=False,
+                   size_bucket_list=120,
+                   enable_auto_bucket_list_size=True,
 
                    max_process=0,
                    queue_max_size=1000,
@@ -112,8 +116,11 @@ def sorted_in_disk(iterable,
     :param iterable: iterable to sort in disk
         This iterable should by a generator for big data due to memory RAM limitation.
     :param key: key specifies a function of one argument that is used to extract a comparison key from each element in
-        iterable (for example, key=str.lower or key=lambda e: e.split(",")[3]).
+        iterable (for example, key=str.lower or key=lambda e: e.split(",")[1]).
         The default value is None (compare the elements directly).
+    :param value: value specifies a function of one argument that is used to extract a value from each element in
+        iterable (for example, key=lambda e: e.split(",")[1:]).
+        The default value is None (value is full element).
     :param reverse: reverse is a boolean value.
         If set to True, then the list elements are sorted as if each comparison were reversed.
     :param tmp_dir: Path to dir where save temporal files. If None this create a folder and overwrite if
@@ -141,6 +148,11 @@ def sorted_in_disk(iterable,
     :param iter_m_queue_max_size: (only if enable_multiprocessing is True) max number of elements in queue. If None
         then is the max by default. By default: 1000
     :param logging_level: Level of log. Only to debug or to remove psutil warning. By default: logging.WARNING
+    :param size_bucket_list: size of bucket to send as a unit to all process consumers.
+        If enable_auto_bucket_list_size = True then, this is the initial value. By default: 120
+    :param enable_auto_bucket_list_size: True to enable auto-change size_bucket_list in execution time, new value
+        is tested and choose one between max and min test values, this range depend on system overloaded.
+        By default: True
 
     :return: SortedInDisk object (you can iterate directly in for structure in same way as list)
 
@@ -155,12 +167,15 @@ def sorted_in_disk(iterable,
                         logging_level=logging_level,
                         ).save_and_sort(iterable,
                                         func_key_sort=key,
+                                        func_value=value,
                                         reverse=reverse,
                                         max_process=max_process,
                                         count_insert_to_check=count_insert_to_check,
                                         max_process_size=max_process_size,
                                         queue_max_size=queue_max_size,
-                                        ensure_space=ensure_space)
+                                        ensure_space=ensure_space,
+                                        size_bucket_list=size_bucket_list,
+                                        enable_auto_bucket_list_size=enable_auto_bucket_list_size)
 
 
 def _is_parent_process_killed():
@@ -279,52 +294,53 @@ def _mprocess(proxy_queue,
         gc.collect()
         while loop_enable:
             try:
-                sort_key, value = proxy_queue.get(timeout=0.1)
+                # sort_key, value = proxy_queue.get(timeout=0.1)
+                bucket_list = proxy_queue.get(timeout=0.1)
                 times_waiting = 0
+                for sort_key, value in bucket_list:
+                    start_cursor_pos = f_full_data.get_cursor_position()
 
-                start_cursor_pos = f_full_data.get_cursor_position()
+                    f_full_data.dump(value,
+                                     ensure_space=ensure_space,
+                                     fun_err_space=evt_err_space_dump)
 
-                f_full_data.dump(value,
-                                 ensure_space=ensure_space,
-                                 fun_err_space=evt_err_space_dump)
+                    try:
+                        fpositions = dict_keysortable_fpositions[sort_key]
+                        fpositions.append(start_cursor_pos)
+                        dict_keysortable_fpositions[sort_key] = fpositions
+                    except KeyError:
+                        dict_keysortable_fpositions[sort_key] = [start_cursor_pos]
 
-                try:
-                    fpositions = dict_keysortable_fpositions[sort_key]
-                    fpositions.append(start_cursor_pos)
-                    dict_keysortable_fpositions[sort_key] = fpositions
-                except KeyError:
-                    dict_keysortable_fpositions[sort_key] = [start_cursor_pos]
+                    if count_insert_to_check is not None:
+                        cache_bulk_counter += 1
 
-                if count_insert_to_check is not None:
-                    cache_bulk_counter += 1
-
-                    if count_insert_to_check < cache_bulk_counter:
-                        process_memory = get_process_memory()
-                        total_bulk_counter += cache_bulk_counter
-                        cache_bulk_counter = 0
-                        logging.debug("[MEMORY CHECK -> id:{} | ppid:{} | pid:{}]: "
-                                      "mem<{}>, els<{}>, ~qsize<{}>".format(ipid,
-                                                                            os.getppid(),
-                                                                            os.getpid(),
-                                                                            process_memory,
-                                                                            total_bulk_counter,
-                                                                            proxy_queue.qsize()))
-                        if process_memory == -1 is None or max_process_size < process_memory:
-                            # If process have more size than limit, then cache is saved to disk and set cache to empty
-                            count_key_file += 1
-                            logging.debug("[SAVING MEMORY -> id:{} | ppid:{} | pid:{}]: key<{}>".format(ipid,
-                                                                                                        os.getppid(),
-                                                                                                        os.getpid(),
-                                                                                                        count_key_file))
-                            paths_to_keys_sorted = sort_cache_and_save(dir_tmp_path,
-                                                                       ipid,
-                                                                       count_key_file,
-                                                                       dict_keysortable_fpositions,
-                                                                       reverse)
-                            list_paths_to_keys_sorted.append(paths_to_keys_sorted)
-                            del dict_keysortable_fpositions
-                            gc.collect()
-                            dict_keysortable_fpositions = {}
+                        if count_insert_to_check < cache_bulk_counter:
+                            process_memory = get_process_memory()
+                            total_bulk_counter += cache_bulk_counter
+                            cache_bulk_counter = 0
+                            logging.debug("[MEMORY CHECK -> id:{} | ppid:{} | pid:{}]: "
+                                          "mem<{}>, els<{}>, ~qsize<{}>".format(ipid,
+                                                                                os.getppid(),
+                                                                                os.getpid(),
+                                                                                process_memory,
+                                                                                total_bulk_counter,
+                                                                                proxy_queue.qsize()))
+                            if process_memory == -1 is None or max_process_size < process_memory:
+                                # If process have more size than limit, then cache is saved to disk and set cache to empty
+                                count_key_file += 1
+                                logging.debug("[SAVING MEMORY -> id:{} | ppid:{} | pid:{}]: key<{}>".format(ipid,
+                                                                                                            os.getppid(),
+                                                                                                            os.getpid(),
+                                                                                                            count_key_file))
+                                paths_to_keys_sorted = sort_cache_and_save(dir_tmp_path,
+                                                                           ipid,
+                                                                           count_key_file,
+                                                                           dict_keysortable_fpositions,
+                                                                           reverse)
+                                list_paths_to_keys_sorted.append(paths_to_keys_sorted)
+                                del dict_keysortable_fpositions
+                                gc.collect()
+                                dict_keysortable_fpositions = {}
             except queue.Empty:
                 loop_enable = not (proxy_end_event.is_set() and proxy_queue.empty())
                 if loop_enable:
@@ -353,6 +369,7 @@ def _mprocess(proxy_queue,
                                                                                          os.getpid()))
             except Exception as err:
                 logging.error("[ERROR -> id:{} | ppid:{} | pid:{}]: {}".format(ipid, os.getppid(), os.getpid(), err))
+                raise
 
     total_bulk_counter += cache_bulk_counter
 
@@ -1010,7 +1027,10 @@ class SortedInDisk(object):
                                    max_process=None,
                                    queue_max_size=1000,
 
-                                   ensure_space=False):
+                                   ensure_space=False,
+
+                                   size_bucket_list=120,
+                                   enable_auto_bucket_list_size=True):
         """
         Consume a iterable to be sorted in multiprocess way.
         Take analysis in this iterable and save to disk (in temporal files).
@@ -1030,6 +1050,11 @@ class SortedInDisk(object):
         :param queue_max_size: max number of elements in queue. If None then is the max by default. By default: 1000
         :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
             and wait for space. If False, then get and IOException if not enough space
+        :param size_bucket_list: size of bucket to send as a unit to all process consumers.
+            If enable_auto_bucket_list_size = True then, this is the initial value. By default: 120
+        :param enable_auto_bucket_list_size: True to enable auto-change size_bucket_list in execution time, new value
+            is tested and choose one between max and min test values, this range depend on system overloaded.
+            By default: True
         :return: self
         """
         logging.debug("[ROOT START -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
@@ -1067,61 +1092,180 @@ class SortedInDisk(object):
         proxy_start_event = multiprocessing.Event()
         proxy_start_event.clear()
 
-        try:
-            try:
-                first_value = next(it_values)
-            except TypeError:
-                it_values = (v for v in it_values)
-                first_value = next(it_values)
 
-            logging.debug("[ROOT INITIALIZE CHILDS -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
+        logging.debug("[ROOT INITIALIZE CHILDS -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
 
-            self.proxy_dict = self.manager.dict()
-            for procesnum in range(0, multiprocessing.cpu_count() if max_process is None else max_process):
+        self.proxy_dict = self.manager.dict()
+        num_processors = multiprocessing.cpu_count() if max_process is None else max_process
+        for procesnum in range(0, num_processors):
 
-                if dict_info["dict_ipid_tup_full_list_parts"] is None:
+            if dict_info["dict_ipid_tup_full_list_parts"] is None:
+                next_id_path_to_keys_sorted = 0
+            else:
+                try:
+                    next_id_path_to_keys_sorted = dict_info["dict_ipid_tup_full_list_parts"][procesnum][2]
+                except KeyError:
                     next_id_path_to_keys_sorted = 0
-                else:
-                    try:
-                        next_id_path_to_keys_sorted = dict_info["dict_ipid_tup_full_list_parts"][procesnum][2]
-                    except KeyError:
-                        next_id_path_to_keys_sorted = 0
 
-                process = multiprocessing.Process(target=_mprocess, args=(proxy_queue,
-                                                                          proxy_start_event,
-                                                                          proxy_end_event,
-                                                                          procesnum,
+            process = multiprocessing.Process(target=_mprocess, args=(proxy_queue,
+                                                                      proxy_start_event,
+                                                                      proxy_end_event,
+                                                                      procesnum,
 
-                                                                          self.dir_tmp_path,
-                                                                          self.proxy_dict,
+                                                                      self.dir_tmp_path,
+                                                                      self.proxy_dict,
 
-                                                                          count_insert_to_check,
-                                                                          max_process_size,
-                                                                          reverse,
-                                                                          next_id_path_to_keys_sorted,
+                                                                      count_insert_to_check,
+                                                                      max_process_size,
+                                                                      reverse,
+                                                                      next_id_path_to_keys_sorted,
 
-                                                                          ensure_space,
-                                                                          self.logging_level))
-                process.daemon = True
-                process.start()
-                self.dict_num_procceses[procesnum] = process
+                                                                      ensure_space,
+                                                                      self.logging_level))
+            process.daemon = True
+            process.start()
+            self.dict_num_procceses[procesnum] = process
 
-            logging.debug("[ROOT START DATA ITERATION -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
+        logging.debug("[ROOT START DATA ITERATION -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
 
-            gc.collect()
-            proxy_start_event.set()
+        gc.collect()
+        proxy_start_event.set()
 
-            count = 1
-            proxy_queue.put((func_key_sort(first_value), func_value(first_value)))
-            for count, value in enumerate(it_values, 2):
-                proxy_queue.put((func_key_sort(value), func_value(value)))
+        bucket_list = list()
+        bucket_count = 0
+        # size_bucket_list = 120
 
-            logging.debug("[ROOT LINES PROCESED: {} -> ppid:{} | pid:{}]".format(count, os.getppid(), os.getpid()))
+        start_auto_checker = queue_max_size
+        max_error = int(queue_max_size * 0.05) \
+            if int(queue_max_size * 0.05) > 1 else 1
+        queue_max_size_error = queue_max_size - max_error
+        max_size_bucket_list = count_insert_to_check // (num_processors * 2 + 1) \
+            if count_insert_to_check // (num_processors * 2 + 1) > 1 else 1
+        wait_check = 0
+        is_taking_samples_low = True
+        is_taking_samples_high = True
+        stable_samples_low = set()
+        stable_samples_high = set()
+        sorted_stable_samples = []
+        steps_change_stable_samples = []
+        difficult_step = 0
+        pointer_stable_sample = -1
+        step_chooser = 0
 
-            proxy_queue.close()
-            proxy_end_event.set()
-        except StopIteration:
-            pass
+        for value in it_values:
+            bucket_list.append((func_key_sort(value), func_value(value)))
+
+            bucket_count += 1
+            if bucket_count > size_bucket_list:
+                proxy_queue.put(bucket_list)
+                bucket_list = list()
+                bucket_count = 0
+
+                if enable_auto_bucket_list_size:
+                    if start_auto_checker > 0:
+                        start_auto_checker -= 1
+                    else:
+                        qsize = proxy_queue.qsize()
+                        if wait_check == 0:
+                            wait_check = queue_max_size / 2
+                            if size_bucket_list > 2 and qsize < max_error:
+                                # Empty queue, reducing bucket_list size
+                                if is_taking_samples_low:
+                                    size_bucket_list //= 2
+                                    if size_bucket_list < 2:
+                                        size_bucket_list = 2
+
+                                    count_samples = len(stable_samples_low)
+                                    stable_samples_low.add(size_bucket_list)
+                                    if (count_samples == len(stable_samples_low) and len(sorted_stable_samples) == 0) \
+                                            or len(sorted_stable_samples) > 0:
+                                        is_taking_samples_low = False
+
+                                        if len(stable_samples_low) > 0 and len(stable_samples_high) > 0:
+                                            sorted_stable_samples = sorted(stable_samples_low | stable_samples_high)
+                                            steps_change_stable_samples = []
+                                            for pos, _ in enumerate(sorted_stable_samples, 0):
+                                                steps_change_stable_samples.append((pos+difficult_step) * 2)
+                                            logging.debug("[ROOT AUTO-DECREASE DETERMINATION -> ppid:{} | pid:{}]: "
+                                                          "sorted_stable_samples<{}>, steps_change_stable_samples"
+                                                          "<{}>".format(os.getppid(),
+                                                                        os.getpid(),
+                                                                        sorted_stable_samples,
+                                                                        steps_change_stable_samples))
+                                else:
+                                    try:
+                                        if pointer_stable_sample == -1:
+                                            pointer_stable_sample = len(sorted_stable_samples)//2
+                                        else:
+                                            step_chooser -= 1
+                                            if step_chooser < -steps_change_stable_samples[pointer_stable_sample-1]:
+                                                pointer_stable_sample -= 1
+                                                step_chooser = 0
+
+                                        size_bucket_list = sorted_stable_samples[pointer_stable_sample]
+                                    except IndexError:
+                                        is_taking_samples_low = True
+                                        pointer_stable_sample = -1
+                                        step_chooser = 0
+                                logging.debug("[ROOT AUTO-REDUCE BUCKET LIST SIZE -> ppid:{} | pid:{}]: "
+                                              "qsize<{}>, size_bucket_list<{}>".format(os.getppid(),
+                                                                                       os.getpid(),
+                                                                                       qsize,
+                                                                                       size_bucket_list))
+                            elif size_bucket_list < max_size_bucket_list and qsize > queue_max_size_error:
+                                # Full queue, increasing bucket_list size
+                                if is_taking_samples_high:
+                                    size_bucket_list += 10
+                                    if size_bucket_list > max_size_bucket_list:
+                                        size_bucket_list = max_size_bucket_list
+
+                                    count_samples = len(stable_samples_high)
+                                    stable_samples_high.add(size_bucket_list)
+                                    if (count_samples == len(stable_samples_high) and len(sorted_stable_samples) == 0)\
+                                            or len(sorted_stable_samples) > 0:
+                                        is_taking_samples_high = False
+                                        if len(stable_samples_low) > 0 and len(stable_samples_high) > 0:
+                                            sorted_stable_samples = sorted(stable_samples_low | stable_samples_high)
+                                            steps_change_stable_samples = []
+                                            for pos, _ in enumerate(sorted_stable_samples, 0):
+                                                steps_change_stable_samples.append((pos+difficult_step) * 2)
+                                            logging.debug("[ROOT AUTO-INCREASE DETERMINATION -> ppid:{} | pid:{}]: "
+                                                          "sorted_stable_samples<{}>, steps_change_stable_samples"
+                                                          "<{}>".format(os.getppid(),
+                                                                        os.getpid(),
+                                                                        sorted_stable_samples,
+                                                                        steps_change_stable_samples))
+                                else:
+                                    try:
+                                        if pointer_stable_sample == -1:
+                                            pointer_stable_sample = len(sorted_stable_samples)//2
+                                        else:
+                                            step_chooser += 1
+                                            if step_chooser > steps_change_stable_samples[pointer_stable_sample+1]:
+                                                pointer_stable_sample += 1
+                                                step_chooser = 0
+
+                                        size_bucket_list = sorted_stable_samples[pointer_stable_sample]
+                                    except IndexError:
+                                        is_taking_samples_high = True
+                                        pointer_stable_sample = -1
+                                        step_chooser = 0
+                                logging.debug("[ROOT AUTO-INCREASE BUCKET LIST SIZE -> ppid:{} | pid:{}]: "
+                                              "qsize<{}>, size_bucket_list<{}>".format(os.getppid(),
+                                                                                       os.getpid(),
+                                                                                       qsize,
+                                                                                       size_bucket_list))
+                        else:
+                            wait_check -= 1
+
+        if bucket_count > 0:
+            proxy_queue.put(bucket_list)
+            del bucket_list
+
+        logging.debug("[ROOT LINES PROCESSED: ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
+
+        proxy_queue.close()
+        proxy_end_event.set()
 
         gc.collect()
         logging.debug("[ROOT END -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
@@ -1140,7 +1284,10 @@ class SortedInDisk(object):
                       max_process=None,
                       queue_max_size=1000,
 
-                      ensure_space=False):
+                      ensure_space=False,
+
+                      size_bucket_list=120,
+                      enable_auto_bucket_list_size=True):
         """
         Choose save_and_sort_multiprocess of save_and_sort_mono depend on max_process
 
@@ -1159,6 +1306,11 @@ class SortedInDisk(object):
         :param queue_max_size: max number of elements in queue. If None then is the max by default. By default: 1000
         :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
             and wait for space. If False, then get and IOException if not enough space
+        :param size_bucket_list: size of bucket to send as a unit to all process consumers.
+            If enable_auto_bucket_list_size = True then, this is the initial value. By default: 120
+        :param enable_auto_bucket_list_size: True to enable auto-change size_bucket_list in execution time, new value
+            is tested and choose one between max and min test values, this range depend on system overloaded.
+            By default: True
         :return:
         """
         if max_process is 0:
@@ -1178,7 +1330,9 @@ class SortedInDisk(object):
                                             max_process_size=max_process_size,
                                             max_process=max_process,
                                             queue_max_size=queue_max_size,
-                                            ensure_space=ensure_space)
+                                            ensure_space=ensure_space,
+                                            size_bucket_list=size_bucket_list,
+                                            enable_auto_bucket_list_size=enable_auto_bucket_list_size)
         return self
 
     def iter_with_key(self,

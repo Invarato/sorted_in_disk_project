@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="sorted-in-disk",
-    version="1.0.0",
+    version="1.0.1",
     author="Ramon Invarato Menendez",
     author_email="r.invarato@gmail.com",
     description="Sort a bulk of data in disk and parallel (RAM memory free)",

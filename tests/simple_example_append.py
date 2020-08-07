@@ -5,7 +5,7 @@
 from datetime import datetime
 from pathlib import Path
 
-from sorted_in_disk.sorted_in_disk import sorted_in_disk
+from sorted_in_disk import sorted_in_disk
 
 """
 Execute this script to see sorted result in console
