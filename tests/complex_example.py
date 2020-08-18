@@ -15,10 +15,7 @@ path_to_file_read: You can use generate_test_file.py to generate sample files wi
 path_to_file_write: If None only simulate read in for loop and discard result
 tmp_dir: temporal folder to sort in disk
 """
-# TODO path_to_file_read = Path("path/example_file_10mb.txt")
-# path_to_file_read = Path("D:\\example_file_1gb.txt")
-path_to_file_read = Path("K:\\mis_test_files_para_borrar\\example_file_50gb.txt")
-# path_to_file_read = Path("K:\\mis_test_files_para_borrar\\example_file_100mb.txt")
+path_to_file_read = Path("path/example_file_10mb.txt")
 path_to_file_write = None
 tmp_dir = Path("tmp_test_folder")
 
@@ -47,8 +44,7 @@ if __name__ == "__main__":
                         key=lambda line: line.split("|")[2],
                         tmp_dir=tmp_dir,
                         max_process=None,
-                        # count_insert_to_check=100000,
-                        # queue_max_size=1000,
+                        iter_multiprocessing=True,
                         logging_level=logging.DEBUG)
     finish = datetime.now()
 

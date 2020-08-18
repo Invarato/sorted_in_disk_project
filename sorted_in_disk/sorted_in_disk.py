@@ -43,15 +43,17 @@ def sorted_in_disk(iterable,
                    count_insert_to_check=1000000,
                    max_process_size=1024 * 1024 * 1024,
                    ensure_space=False,
+
+                   max_process=0,
+                   queue_max_size=1000,
                    size_bucket_list=None,
                    min_size_bucket_list=10,
                    max_size_bucket_list=None,
 
-                   max_process=0,
-                   queue_max_size=1000,
-
                    iter_multiprocessing=False,
                    iter_m_queue_max_size=1000,
+                   iter_min_size_bucket_list=10,
+                   iter_max_size_bucket_list=None,
 
                    logging_level=logging.WARNING):
     """
@@ -149,6 +151,10 @@ def sorted_in_disk(iterable,
         By default: False
     :param iter_m_queue_max_size: (only if enable_multiprocessing is True) max number of elements in queue. If None
         then is the max by default. By default: 1000
+    :param iter_min_size_bucket_list: (only if sensor is enabled) min size bucket list.
+                         Min == 1 and max == iter_max_size_bucket_list - 1. By default: 10
+    :param iter_max_size_bucket_list: (only if sensor is enabled) max size bucket list. If None is infinite.
+                                 By default: None
     :param logging_level: Level of log. Only to debug or to remove psutil warning. By default: logging.WARNING
     :param size_bucket_list: None to enable sensor size bucket list (require maxsize>0). If a number is defined
                              here then use this number to size_bucket_list and disable sensor. If maxsize<=0
@@ -169,6 +175,8 @@ def sorted_in_disk(iterable,
                         ensure_different_dirs=ensure_different_dirs,
                         iter_multiprocessing=iter_multiprocessing,
                         iter_m_queue_max_size=iter_m_queue_max_size,
+                        iter_min_size_bucket_list=iter_min_size_bucket_list,
+                        iter_max_size_bucket_list=iter_max_size_bucket_list,
                         logging_level=logging_level,
                         ).save_and_sort(iterable,
                                         func_key=key,

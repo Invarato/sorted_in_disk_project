@@ -12,17 +12,21 @@ real time while return sorted data to you (in injection time perform a quick and
 
 
 ## Installation from PYPI
-You can find last version of project in: https://pypi.org/project/sorted-in-disk/
+You can find the last release version of the project to install in: https://pypi.org/project/sorted-in-disk/
 
 Command to install:
 ```
 pip install sorted-in-disk
 ```
 
-This project has one dependency (this is auto-imported with PIP): `easy_binary_file`
+Mandatory dependencies (auto-import with PIP):
+ * `easy_binary_file`: to manage binary files
+ * `quick_queue`: to pass quick values between processes
 
-You can use but it is not mandatory `psutil` package. Only to check current memory of process and save to disk (if you
-do not have `psutil`, then when certain number of items will be reached, then save to disk).
+Optional dependencies (only hand-installable):
+ * `psutil`: to check current memory of process and save to disk (if you do not have `psutil`, then when certain 
+             number of items will be reached, then save to disk). Not mandatory because I detected some 
+             incompatibilities issues in some systems (`psutil` need extra permissions).
 
 
 ## Quick use
@@ -104,12 +108,17 @@ Helpers methods public to take advantage of this package (those are not main pac
  
  
 #### sorted_in_disk args
+Args to configure **common sorted args**:
  * `iterable`: iterable to sort in disk.
         This iterable should by a generator for big data due to RAM memory limitation.
  * `key`: key specifies a function of one argument that is used to extract a comparison key from each element in
-        iterable (for example, `key=str.lower` or key=lambda e: `e.split(",")[3]`).
+        iterable (for example, `key=str.lower` or `key=lambda e: e.split(",")[3]`).
         The default value is None (compare the elements directly).
+ * `value`: value specifies a function of one argument that is used to extract a value from each element in
+            iterable (for example, `key=lambda e: e.split(",")[1:]`).
  * `reverse`: reverse is a boolean value.
+ 
+Args to configure **temporal directories**:
         If set to `True`, then the list elements sorted as if each comparison were reversed.
  * `tmp_dir`: Path to dir where save temporal files. If None this creates a folder and overwrite if
         exist previously. By default: create a sortInDiskTmps folder in the current directory.
@@ -121,6 +130,8 @@ Helpers methods public to take advantage of this package (those are not main pac
  * `append`: True to clean folder tmp_dir if existe previously. By default: `False`
  * `only_one_read`: True to clean folder tmp_dir when you consume all data. If it is True only works if you read all 
         returned data, if you not read all, then you need to clear instance to auto. By default: `True`
+        
+Args to configure **write/injection**:
  * `count_insert_to_check`: counter to check if process have more size in memory than max_process_size.
         By default: `1000000`
  * `max_process_size`: max size in bytes to dump cache memory values to disk
@@ -131,12 +142,25 @@ Helpers methods public to take advantage of this package (those are not main pac
  * `max_process`: number of process to execute. If None then it is number of CPUs. By default: `0`
  * `queue_max_size`: (only if `max_process!=0`) max number of elements in queue. If None then is the max by default.
         By default: `1000`
+ * `size_bucket_list`: None to enable sensor size bucket list (require `maxsize>0`). If a number is defined
+                              here then use this number to size_bucket_list and disable sensor. If `maxsize<=0`
+                              and `size_bucket_list==None` then size_bucket_list is default to `1000`; other wise,
+                              if maxsize<=0 and size_bucket_list is defined, then use this number. By default: `None`
+ * `min_size_bucket_list`: (only if sensor is enabled) min size bucket list.
+                                  `Min == 1` and `max == max_size_bucket_list - 1`. By default: `10`
+ * `max_size_bucket_list`: (only if sensor is enabled) max size bucket list. If `None` is infinite.
+                                  By defatult: `None`
+Args to configure **read**:
  * `iter_multiprocessing`: `True` to get and prepare data in other process, `False` to use this one.
         By default: `False`
  * `iter_m_queue_max_size`: (only if `enable_multiprocessing` is `True`) max number of elements in queue. If None
         then is the max by default. By default: `1000`
+ * `iter_min_size_bucket_list`: (only if sensor is enabled) min size bucket list.
+                         `Min == 1` and `max == iter_max_size_bucket_list` - 1. By default: `10`
+ * `iter_max_size_bucket_list`: (only if sensor is enabled) max size bucket list. If `None` is infinite.
+                                 By default: `None`
+Args to debug:
  * `logging_level`: Level of log. Only to debug or to remove psutil warning. By default: `logging.WARNING`
-
 
 ### Class:
  * `SortedInDisk`: Instance an object to work with data in a specific temporal folder.
@@ -268,35 +292,211 @@ In the end on one instance of `SortInDisk can:
     This is enable if `sorted_in_disk` have arg `only_one_read` to `True`.
 
 
-## About performance
-You can use many times one sorted work from disk (if `only_one_read` is `False`), but this is not a data base. When 
-data is in disk have a minimum sorted work, but it is not finally sort. When you read data perform complete sort in 
-real time (to have sorted data as soon as posible). Due to, if you want use several times sorted work, maybe is good
+## Performance
+
+### Hardware
+`sorted_in_disk` take advantage of you Hardware, then this is more quickly if it is well configured and run in best
+hardware.
+
+You need to know:
+* **RAM memory**: it is used to accelerate injection, multiprocess queues and pre-sorted, when condition of variables 
+`count_insert_to_check` and `queue_max_size` are met, then will dump to disk to liberate RAM memory. In conclusion,
+if you have more RAM memory you can configure more `count_insert_to_check` and `queue_max_size` to work more in 
+faster RAM memory. Example:
+```python
+sid = sorted_in_disk(...,
+                     count_insert_to_check=1000000,
+                     max_process_size=1024 * 1024 * 1024)
+```
+
+* **Processes**: To inject/write is a good idea divide work in processes one per processor 
+(with `max_process` variable) if it is possible to increase the velocity of sorted in disk. But, you need to 
+calibrate the best number of processes in your system if you want to reach the max performance; because, maybe more
+processes are no more quickly if you have RAM memory or disk limitations. To read, if `iter_multiprocessing=True` you
+have a dedicated precess to read while you consume data and have a buffer of prepared sorted data.
+
+* **Disk**: It is better work in SSD disk than HHD disk to prevent a bottleneck of processes. To increase the 
+disk performance you can read data from different disk (depend on `iterable` read data) where the sorted is 
+taking place (configure this path with `tmp_dir`). Example:
+```python
+sid = sorted_in_disk(...,
+                     tmp_dir="/path/to/tmp_dir")
+```
+
+To start I recommend you test first with mono-process (`max_process=0`) in injection and read 
+(`iter_multiprocessing=False`).
+```python
+sid = sorted_in_disk(...,
+                     max_process=0)
+```
+
+After, you can test with multiprocess (example for 4 inject processes `max_process=4`, 
+or create one per physical processor with `max_process=None`). If you think velocity of disk is enough, 
+you can enable multiprocess and test with different configurations. If disk velocity is not enough then is 
+quickly and easy use mono-process.
+```python
+sid = sorted_in_disk(...,
+                     max_process=4)
+```
+
+To read, if you need to perform hard operations with each returned data, it is better to enable multi-process in read.
+```python
+sid = sorted_in_disk(...,
+                     iter_multiprocessing=True)
+```
+ 
+In other case, it is quick enough mono-process.
+```python
+sid = sorted_in_disk(...,
+                     iter_multiprocessing=False)
+```
+
+More advanced performance settings in `sorted_in_disk` if you use multi-process, then you can configure the queue 
+to read or write (both queues are independents). 
+
+For example to precise fit configuration of write-queue (if `max_process=0` write-queue not work):
+```python
+sid = sorted_in_disk(...,
+                     max_process=None,  # Write multiprocess enabled if this is different to 0 (None, 1, 2, 3, etc...)
+                     queue_max_size=1000,
+                     size_bucket_list=None,
+                     min_size_bucket_list=10,
+                     max_size_bucket_list=None)
+```
+
+Or an example to precise fit configuration of read-queue (if `iter_multiprocessing=False` read-queue not work):
+```python
+sid = sorted_in_disk(...,
+                     iter_multiprocessing=True,  # Read multiprocess enabled if this is True
+                     iter_m_queue_max_size=1000,
+                     iter_min_size_bucket_list=10,
+                     iter_max_size_bucket_list=None)
+```
+
+### Reuse pre-sorted work
+You can use many times one sorted work from disk (if `only_one_read=False`), but this is not a data base. Example:
+```python
+sid = sorted_in_disk(...,
+                     only_one_read=False)
+```
+
+When data is in disk have a minimum sorted work, but it is not finally sort. When you read data perform complete sort 
+in real time (to have sorted data as soon as posible). Due to, if you want use several times sorted work, maybe is good
 idea save result to file and read from this one (if you want to take advantage of same read iteration, with Python 
 generators in streaming configuration you can save data to disk while you use data at same time).
 
 
-## To prevent bottleneck
-I recommend to start testing with mono-process in injection and read. After, you can test with multiprocess,
-because depend on system (hardware and software) multiprocess is quicker or slower than mono-process due to process
-idle, extra processor to enqueue data, etc.
+### Performance test
+Hardware where the tests have been done:
+ * Processor: Intel i5 3.2GHz 4-core
+ * Operating System: Windows 10 x64
+ * RAM Memory: 8 GB
 
-It is better save and read data in SSD disk due to velocity. If you read file it is better to read from other 
-disk or SSD disk.
+Use different configurations in `python3 tests\complex_example.py`
 
-If you think velocity of disk is enough, you can enable multiprocess and test with different configurations. If
-disk velocity is not enough then is quickly and easy use mono-process.
-
-To read, if you need to perform hard operations with each returned data, it is better to enable multi-process in read. 
-In other case, it is quick enough mono-process.
+Inject N elements in `sorted_in_disk`.
 
 
-## Note about this algorithm
-This is an own algorithm create with my own experience in big data. This is invented by me and my experience, I do not 
-investigated thirds or used any others to create this one.
+#### 6,360,077 elements (1 GB of data) <All data sorted in same HHD disk using 1,16 GB>
+
+**Mono-Processor**: main process (injection in same main process):
+```
+sorted_in_disk write and pre-sort: 0:01:41.586510
+```
+Example to instance this execution:
+```python
+sid = sorted_in_disk(iterable_1gb,
+                     key=lambda line: line.split("|")[2],
+                     max_process=0)
+```
+
+**+1 Processors**: main process and 1 process for injection 
+(time: Mono-Processor = 1 Processor x 3.3 faster):
+```
+sorted_in_disk write and pre-sort: 0:00:30.138000
+```
+Example to instance this execution:
+```python
+sid = sorted_in_disk(iterable_1gb,
+                     key=lambda line: line.split("|")[2],
+                     max_process=1)
+```
+
+**+4 Processors**: main process and 4 processes for injection 
+(time: Mono-Processor = 4 Processors x 3.5 faster):
+```
+sorted_in_disk write and pre-sort: 0:00:28.697512
+```
+```python
+sid = sorted_in_disk(iterable_1gb,
+                     key=lambda line: line.split("|")[2],
+                     max_process=None)
+```
+
+
+#### 314,610,000 elements (50 GB of data) <All data sorted in same HHD disk using 66 GB>
+
+**Mono-Processor**: main process (injection in same main process; max 2 GB RAM memory consumption):
+```
+sorted_in_disk write and pre-sort: 2:01:26.222081
+```
+Example to instance this execution:
+```python
+sid = sorted_in_disk(iterable_50gb,
+                     key=lambda line: line.split("|")[2],
+                     max_process=0)
+```
+
+**+4 Processors**: main process and 4 processes for injection (max 5 GB RAM memory consumption)
+(time: Mono-Processor = 4 Processors x 2 faster):
+```
+sorted_in_disk write and pre-sort: 1:16:38.016659
+```
+```python
+sid = sorted_in_disk(iterable_50gb,
+                     key=lambda line: line.split("|")[2],
+                     max_process=None)
+```
+
+### Readed
+**Reminder**: `sorted_in_disk` write and do pre-sort operations while consume all data, after read in realtime when data 
+is consumed by third code. In the following individual performance tests it is only indicated "write and pre-sort" 
+heavy work require consume all data and block main process until all data will inject.
+
+In all cases, **read sorted data in realtime** (reading in same main process from all files): 
+```
+100,000 elements each 4 seconds approximately
+```
+
+To configure read in same process (with block while process of sort improved):
+```python
+sid = sorted_in_disk(iterable,
+                     ...
+                     iter_multiprocessing=False)
+```
+
+To configure read in different process (without block while process of sort improved):
+```python
+sid = sorted_in_disk(iterable,
+                     ...
+                     iter_multiprocessing=True)
+```
 
 
 ## Limitations
 Not mix mono-process and multiprocess configuration in same temporal file (only if you use `only_one_read=False` 
 and `append=True`). Each mode (mono-process or multiprocess) work similar but save data in different ways to improve
 performance of each thread.
+
+
+## About this "sorted in disk" algorithm
+This is an own algorithm create with my own experience in big data. This is invented by me and my experience, I do not 
+investigated thirds or used any others to create this one. In addition, I use QuickQueue for Python than I invented and
+developed too. 
+
+
+## Is useful for you?
+Maybe you would be so kind to consider the amount of hours puts in, the great effort and the resources expended in 
+doing this project. Thank you.
+
+[![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=PWRRXZ2HETVG8&source=url)
