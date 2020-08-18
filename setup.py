@@ -14,7 +14,8 @@ setuptools.setup(
     url="https://github.com/Invarato/sort_in_disk_project",
     packages=setuptools.find_packages(),
     install_requires=[
-        'easy_binary_file>=1.0.0',
+        'easy_binary_file>=1.0.4',
+        'quick_queue>=1.0.5',
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
