@@ -85,12 +85,15 @@ for value in sorted_in_disk(...):
 ```
 
 If you have a big text file where each line has a key to sort, you can read file line to line quickly with
-`read_iter_from_file` in `sorted_in_disk.utils` package and get data sorted. Example (key supposes file have 
-lines similar to "key1|value1"):
+`read_iter_from_file` in `sorted_in_disk.utils` package to pass an iterable for lines in the file (this way not read 
+full file in one time, read line per line in a generator; only consume one line size in RAM memory). 
+Example (key supposes file have lines similar to "key1|value1"):
 ```python
 from sorted_in_disk.utils import read_iter_from_file
 
-sid = sorted_in_disk(read_iter_from_file("path/to/your/file/to/read"),
+iterable_with_unsorted_data = read_iter_from_file("path/to/your/file/to/read")
+
+sid = sorted_in_disk(iterable_with_unsorted_data,
                      key=lambda line: line.split("|")[0])
 
 for sorted_line in sid:
