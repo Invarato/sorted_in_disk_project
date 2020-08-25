@@ -20,7 +20,7 @@ real time while return sorted data to you (in injection time perform a quick and
  * [Documentation](#documentation)
  * [Limitations](#limitations)
  * [About this algorithm](#about-this-algorithm)
- * [Is useful for you?](#is-useful-for-you?)
+ * [Is useful for you?](#is-useful-for-you)
  * [Contact](#contact)
 
 
