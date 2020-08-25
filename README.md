@@ -91,7 +91,7 @@ lines similar to "key1|value1"):
 from sorted_in_disk.utils import read_iter_from_file
 
 sid = sorted_in_disk(read_iter_from_file("path/to/your/file/to/read"),
-                                        key=lambda line: line.split("|")[0])
+                     key=lambda line: line.split("|")[0])
 
 for sorted_line in sid:
     print(sorted_line)
