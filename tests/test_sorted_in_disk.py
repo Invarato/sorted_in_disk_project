@@ -8,3 +8,4 @@ import doctest
 
 if __name__ == "__main__":
     doctest.testfile("../sorted_in_disk/sorted_in_disk.py")
+    doctest.testfile("../sorted_in_disk/utils.py")

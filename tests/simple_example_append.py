@@ -39,7 +39,7 @@ if __name__ == "__main__":
     gs = sorted_in_disk(iterator_with_data_to_sort,
                         key=lambda line: line.split("|")[0],
                         tmp_dir=tmp_dir,
-                        max_process=max_process,
+                        write_processes=max_process,
                         append=False,
                         only_one_read=False)
     finish = datetime.now()
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     gs = sorted_in_disk(second_iterator_with_data_to_sort,
                         key=lambda line: line.split("|")[0],
                         tmp_dir=tmp_dir,
-                        max_process=max_process,
+                        write_processes=max_process,
                         append=True,
                         only_one_read=False)
     finish = datetime.now()
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     gs = sorted_in_disk(third_iterator_with_data_to_sort,
                         key=lambda line: line.split("|")[0],
                         tmp_dir=tmp_dir,
-                        max_process=max_process,
+                        write_processes=max_process,
                         append=True,
                         only_one_read=True)
     finish = datetime.now()

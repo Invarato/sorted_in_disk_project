@@ -11,9 +11,10 @@ import gc
 from pathlib import Path
 import logging
 
+from .utils import human_size
+
 from easy_binary_file import EasyBinaryFile, load_single_value, dump_single_value, quick_dump_items, quick_load_items
 from quick_queue import QQueue
-
 
 
 try:
@@ -21,7 +22,6 @@ try:
 except ImportError:
     # python 3.x
     import Queue as queue
-
 
 __test__ = {'import_test': """
                            >>> from sorted_in_disk.sorted_in_disk import *
@@ -41,16 +41,16 @@ def sorted_in_disk(iterable,
                    only_one_read=True,
 
                    count_insert_to_check=1000000,
-                   max_process_size=1024 * 1024 * 1024,
+                   max_write_process_size=1024 * 1024 * 1024,
                    ensure_space=False,
 
-                   max_process=0,
+                   write_processes=0,
                    queue_max_size=1000,
                    size_bucket_list=None,
                    min_size_bucket_list=10,
                    max_size_bucket_list=None,
 
-                   iter_multiprocessing=False,
+                   read_process=False,
                    iter_m_queue_max_size=1000,
                    iter_min_size_bucket_list=10,
                    iter_max_size_bucket_list=None,
@@ -80,7 +80,7 @@ def sorted_in_disk(iterable,
     in a normal file and reuse from this one. For this reason, it is strongly recomend to save result in other structure
     or file if you planed to reuse more than one or two times.
 
-    Note if max_process != 0: Multiprocess improve hard sorted work in other/s processes and get free the main process
+    Note if write_processes != 0: Multiprocess improve hard sorted work in other/s processes and get free the main process
                               after end of injection. It is necesary to improve a join to ensure and save sorted states.
                               For auto-join you can iterate sorted result (you not need to do nothing). But if you only
                               want inject data to future use, then you need to call explicit join call to:
@@ -98,9 +98,15 @@ def sorted_in_disk(iterable,
     # >>> list(sid)
     ['valB|key1|valE', 'valC|key2|valF', 'valA|key3|valD']
 
-    Example to define multiprocess (max_process=None to auto-get the number of max physical processors):
+    Example to define multiprocess (write_processes=None to auto-get the number of max physical processors):
     # >>> iterable_unsorted = ["valA|key3|valD", "valB|key1|valE", "valC|key2|valF"]
-    # >>> sid = sorted_in_disk(iterable_unsorted, key=lambda line: line.split("|")[1], max_process=4)
+    # >>> sid = sorted_in_disk(iterable_unsorted, key=lambda line: line.split("|")[1], write_processes=4)
+    # >>> list(sid)
+    ['valB|key1|valE', 'valC|key2|valF', 'valA|key3|valD']
+
+    Example to define multiprocess, one process per path (in this case 2 processes):
+    # >>> iterable_unsorted = ["valA|key3|valD", "valB|key1|valE", "valC|key2|valF"]
+    # >>> sid = sorted_in_disk(iterable_unsorted, key=lambda line: line.split("|")[1], write_processes=["path/tmp_process_1", "path/tmp_process_2"])
     # >>> list(sid)
     ['valB|key1|valE', 'valC|key2|valF', 'valA|key3|valD']
 
@@ -137,17 +143,21 @@ def sorted_in_disk(iterable,
     :param only_one_read: True to clean folder tmp_dir when you consume all data.
         If it is True only works if you read all returned data, if you not read all, then you need to clear instance
         to auto. By default: True
-    :param count_insert_to_check: counter to check if process have more size in memory than max_process_size.
+    :param count_insert_to_check: counter to check if process have more size in memory than max_write_process_size.
         By default: 1000000
-    :param max_process_size: max size in bytes to dump cache memory values to disk
+    :param max_write_process_size: max size in bytes to dump cache memory values to disk
         (only execute when count_insert_to_check is reached). If None, then not import psutil and then only
         check with count_insert_to_check. By default: 1024*1024*1024  # 1Gib
     :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
         and wait for space. If False, then get and IOException if not enough space. By defatul: False
-    :param max_process: number of process to execute. If None then it is number of CPUs. By default: 0
-    :param queue_max_size: (only if max_process!=0) max number of elements in queue. If None then is the max by default.
+    :param write_processes: number of process to execute. If None then it is number of CPUs. If you pass one list
+                     with paths pointing to folders, then each path implements one process (each process save data in
+                     its own path; you can use one path to several processes if you define same path several times in
+                     the list) and these paths are managed by `sorted_in_disk` (`tmp_dir` continues to be used for
+                     save general state information). By default: 0
+    :param queue_max_size: (only if write_processes!=0) max number of elements in queue. If None then is the max by default.
         By default: 1000
-    :param iter_multiprocessing: True to get and prepare data in other process, False to use this one.
+    :param read_process: True to get and prepare data in other process, False to use this one.
         By default: False
     :param iter_m_queue_max_size: (only if enable_multiprocessing is True) max number of elements in queue. If None
         then is the max by default. By default: 1000
@@ -173,7 +183,7 @@ def sorted_in_disk(iterable,
                         delete_to_end=only_one_read,
                         delete_previous=not append,
                         ensure_different_dirs=ensure_different_dirs,
-                        iter_multiprocessing=iter_multiprocessing,
+                        read_process=read_process,
                         iter_m_queue_max_size=iter_m_queue_max_size,
                         iter_min_size_bucket_list=iter_min_size_bucket_list,
                         iter_max_size_bucket_list=iter_max_size_bucket_list,
@@ -182,9 +192,9 @@ def sorted_in_disk(iterable,
                                         func_key=key,
                                         func_value=value,
                                         reverse=reverse,
-                                        max_process=max_process,
+                                        write_processes=write_processes,
                                         count_insert_to_check=count_insert_to_check,
-                                        max_process_size=max_process_size,
+                                        max_write_process_size=max_write_process_size,
                                         queue_max_size=queue_max_size,
                                         ensure_space=ensure_space,
                                         size_bucket_list=size_bucket_list,
@@ -234,22 +244,22 @@ def _get_func_process_memory(enable_consumption_check=True):
     return get_process_memory
 
 
-def _mprocess(proxy_queue,
-              proxy_start_event,
-              proxy_end_event,
-              ipid,
+def _write_process(proxy_queue,
+                   proxy_start_event,
+                   proxy_end_event,
+                   ipid,
 
-              dir_tmp_path,
-              proxy_dict,
+                   dir_tmp_path,
+                   proxy_dict,
 
-              count_insert_to_check,
-              max_process_size,
-              reverse,
+                   count_insert_to_check,
+                   max_write_process_size,
+                   reverse,
 
-              next_id_path_to_keys_sorted,
+                   next_id_path_to_keys_sorted,
 
-              ensure_space,
-              logging_level):
+                   ensure_space,
+                   logging_level):
     """
     Process to inject data.
 
@@ -259,8 +269,8 @@ def _mprocess(proxy_queue,
     :param ipid: pid of this process
     :param dir_tmp_path: path to tmp directories
     :param proxy_dict: dict of sorted indexation
-    :param count_insert_to_check: counter to check if process have more size in memory than max_process_size.
-    :param max_process_size: max size in bytes to dump cache memory values to disk.
+    :param count_insert_to_check: counter to check if process have more size in memory than max_write_process_size.
+    :param max_write_process_size: max size in bytes to dump cache memory values to disk.
     :param reverse: True to reverse sort. By default: False
     :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
         and wait for space. If False, then get and IOException if not enough space
@@ -268,7 +278,7 @@ def _mprocess(proxy_queue,
     """
     logging.basicConfig(stream=sys.stderr, level=logging_level)
 
-    get_process_memory = _get_func_process_memory(max_process_size is not None)
+    get_process_memory = _get_func_process_memory(max_write_process_size is not None)
 
     logging.debug("[START -> id:{} | ppid:{} | pid:{}]".format(ipid, os.getppid(), os.getpid()))
 
@@ -338,7 +348,7 @@ def _mprocess(proxy_queue,
                                                                             process_memory,
                                                                             total_bulk_counter,
                                                                             proxy_queue.qsize()))
-                        if process_memory == -1 is None or max_process_size < process_memory:
+                        if process_memory == -1 is None or max_write_process_size < process_memory:
                             # If process have more size than limit, then cache is saved to disk and set cache to empty
                             count_key_file += 1
                             logging.debug("[SAVING MEMORY -> id:{} | ppid:{} | pid:{}]: key<{}>".format(ipid,
@@ -365,7 +375,7 @@ def _mprocess(proxy_queue,
                             logging.debug("[PARENT KILLED (TERMINATE) -> "
                                           "id:{} | ppid:{} | pid:{}]".format(ipid,
                                                                              os.getppid(),
-                                                                                 os.getpid()))
+                                                                             os.getpid()))
                             loop_enable = False
                         else:
                             gc.collect()
@@ -416,6 +426,7 @@ def _get_next(iter_f):
     :param iter_f: iterable to wrap in next function
     :return: function to get next of iterable
     """
+
     def f_next():
         try:
             return next(iter_f)
@@ -495,15 +506,15 @@ def _iter_get_data_from_files(dict_ipid_tup_full_list_parts, reverse=False):
     del full_data_counter
 
 
-def _mprocess_iter(proxy_queue_iter,
-                   proxy_queue_iter_init_args,
-                   proxy_start_event_iter,
-                   proxy_end_event_iter,
+def _read_process(proxy_queue_iter,
+                  proxy_queue_iter_init_args,
+                  proxy_start_event_iter,
+                  proxy_end_event_iter,
 
-                   dict_ipid_tup_full_list_parts,
-                   reverse,
+                  dict_ipid_tup_full_list_parts,
+                  reverse,
 
-                   logging_level):
+                  logging_level):
     """
     Consumer process of sorted data
 
@@ -590,11 +601,10 @@ def create_tmp_folder(dir_tmp_path, ensure_different_dirs=False):
     return dir_tmp_path
 
 
-def delete_tmp_folder(dir_tmp_path, secure_paths_to_del=None):
+def delete_tmp_folder(secure_paths_to_del=None):
     """
     Delete temporal files created
 
-    :param dir_tmp_path: parent dir to delete
     :param secure_paths_to_del: iterable of paths to delete. Safe check with dir_tmp_path parent.
     :exception FileNotFoundError: raise if one path of secure_paths_to_del is not a dir_tmp_path child.
     :return: None
@@ -611,17 +621,14 @@ def delete_tmp_folder(dir_tmp_path, secure_paths_to_del=None):
 
     if secure_paths_to_del:
         for path_to_del in secure_paths_to_del:
-            if dir_tmp_path in path_to_del.parents or dir_tmp_path is path_to_del:
-                del_file(path_to_del)
-            else:
-                raise FileNotFoundError("{} is not a path of {}".format(path_to_del,
-                                                                        dir_tmp_path))
+            del_file(path_to_del)
 
 
 class SortedInDisk(object):
     """
     Clase SortedInDisk
     """
+
     def __init__(self,
                  path_to_tmp_dir=Path("sortInDiskTmps"),
                  ensure_different_dirs=False,
@@ -629,7 +636,7 @@ class SortedInDisk(object):
                  delete_previous=True,
                  delete_to_end=True,
 
-                 iter_multiprocessing=False,
+                 read_process=False,
                  iter_m_queue_max_size=1000,
                  iter_size_bucket_list=None,
                  iter_min_size_bucket_list=10,
@@ -638,7 +645,6 @@ class SortedInDisk(object):
                  logging_level=logging.WARNING):
         """
         Sort in disk mono-thread or multiprocess.
-        By default is multiprocess with the max CPUs in system (defined by max_process parameter)
 
         Example of use for one example iterator:
             iterator_with_data_to_sort=[
@@ -665,7 +671,7 @@ class SortedInDisk(object):
             sid = SortedInDisk(Path("C:\tmp_folder\"))\
                   .save_and_sort(iterator_with_data_to_sort,
                                  func_key=lambda line: line.split()[0],
-                                 max_process=0)
+                                 write_processes=0)
 
             Note: This is blocking the current thread flow until end.
             Note: If path_to_tmp_dir is not defined, then it is in current execution script folder
@@ -686,7 +692,7 @@ class SortedInDisk(object):
         :param delete_to_end: True to delete tmps files in the end of consumption of sorted data. If False or
                               if you not consume full returned iterable, then you may to delete tmps files by hand
                               (you can carry out with clear() method). By default: True
-        :param iter_multiprocessing: True to get and prepare data in other process, False to use this one.
+        :param read_process: True to get and prepare data in other process, False to use this one.
             By default: False
         :param iter_m_queue_max_size: (only if enable_multiprocessing is True) max number of elements in queue. If None
             then is the max by default. By default: 1000
@@ -719,7 +725,7 @@ class SortedInDisk(object):
         self.manager = multiprocessing.Manager()
         self.proxy_dict = None
 
-        self.iter_multiprocessing = iter_multiprocessing
+        self.read_process = read_process
         self.iter_m_queue_max_size = iter_m_queue_max_size
         self.iter_size_bucket_list = iter_size_bucket_list
         self.iter_min_size_bucket_list = iter_min_size_bucket_list
@@ -735,12 +741,9 @@ class SortedInDisk(object):
                     for path_to_keys_sorted in tup[1]:
                         yield path_to_keys_sorted
 
-            if include_tmp_folder and self.dir_tmp_path is not None:
-                try:
-                    yield self.dir_tmp_path
-                    self.dir_tmp_path = None
-                except OSError:
-                    pass
+            if include_tmp_folder:
+                for directory in dict_info["directories"]:
+                    yield directory
 
     def delete_tmp(self, remove_tmp_folder=True):
         """
@@ -749,8 +752,7 @@ class SortedInDisk(object):
         :param remove_tmp_folder: True to delete tmp folder. By default: True
         :return: None
         """
-        delete_tmp_folder(self.dir_tmp_path,
-                          secure_paths_to_del=self.tmp_paths(include_tmp_folder=remove_tmp_folder))
+        delete_tmp_folder(secure_paths_to_del=self.tmp_paths(include_tmp_folder=remove_tmp_folder))
 
     def clear(self, remove_tmp_folder=True):
         """
@@ -776,7 +778,8 @@ class SortedInDisk(object):
                 "reverse": False,
                 "empty": True,
                 "multiprocessing": False,
-                "total_counter": 0
+                "total_counter": 0,
+                "directories": set()
             }
 
     def set_dict_saved_info(self, dict_to_save):
@@ -800,7 +803,7 @@ class SortedInDisk(object):
                            reverse=False,
 
                            count_insert_to_check=1000000,
-                           max_process_size=1024*1024*1024,
+                           max_write_process_size=1024 * 1024 * 1024,
 
                            ensure_space=False):
         """
@@ -813,9 +816,9 @@ class SortedInDisk(object):
         :param func_value: function to extract the value of each value of it_values.
             If None is full value of it_values. By default: None
         :param reverse: True to reverse sort. By default: False
-        :param count_insert_to_check: counter to check if process have more size in memory than max_process_size.
+        :param count_insert_to_check: counter to check if process have more size in memory than max_write_process_size.
             By default: 1000000
-        :param max_process_size: max size in bytes to dump cache memory values to disk
+        :param max_write_process_size: max size in bytes to dump cache memory values to disk
             (only execute when count_insert_to_check is reached). If None, then not import psutil and then only
             check with count_insert_to_check. By default: 1024*1024*1024  # 1Gib
         :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
@@ -834,7 +837,7 @@ class SortedInDisk(object):
 
             func_value = func_value_default
 
-        get_process_memory = _get_func_process_memory(max_process_size is not None)
+        get_process_memory = _get_func_process_memory(max_write_process_size is not None)
 
         dict_info = self.get_dict_saved_info()
 
@@ -877,6 +880,7 @@ class SortedInDisk(object):
             dict_info["reverse"] = reverse
             dict_info["empty"] = False
             dict_info["multiprocessing"] = False
+            dict_info["directories"].add(self.dir_tmp_path)
 
             for value in it_values:
                 mkey = func_key(value)
@@ -907,7 +911,7 @@ class SortedInDisk(object):
                                                                                                 process_memory,
                                                                                                 total_bulk_counter))
 
-                    if process_memory == -1 or max_process_size < process_memory:
+                    if process_memory == -1 or max_write_process_size < process_memory:
                         # If process have more size than limit, then cache is saved to disk and set cache to empty
                         count_key_file += 1
                         logging.debug("[SAVING MEMORY -> ppid:{} | pid:{}]: key<{}>".format(os.getppid(),
@@ -920,7 +924,7 @@ class SortedInDisk(object):
 
             total_bulk_counter += cache_bulk_counter
 
-        path_to_keys_sorted = sort_cache_and_save(count_key_file+1, dict_keysortable_fpositions, reverse)
+        path_to_keys_sorted = sort_cache_and_save(count_key_file + 1, dict_keysortable_fpositions, reverse)
         if path_to_keys_sorted is not None:
             list_paths_to_keys_sorted.append(path_to_keys_sorted)
 
@@ -934,11 +938,11 @@ class SortedInDisk(object):
         else:
             prev_list_paths_keys_sorted = dict_info["dict_ipid_tup_full_list_parts"][-1][1]
             prev_bulk_counter = dict_info["dict_ipid_tup_full_list_parts"][-1][3]
-            new_total_bulk_counter = prev_bulk_counter+total_bulk_counter
+            new_total_bulk_counter = prev_bulk_counter + total_bulk_counter
             dict_info["dict_ipid_tup_full_list_parts"][-1] = (path_full_data,
-                                                              prev_list_paths_keys_sorted+list_paths_to_keys_sorted,
+                                                              prev_list_paths_keys_sorted + list_paths_to_keys_sorted,
                                                               next_id_path_to_keys_sorted,
-                                                              prev_bulk_counter+total_bulk_counter)
+                                                              prev_bulk_counter + total_bulk_counter)
 
         dict_info["total_counter"] = new_total_bulk_counter
 
@@ -965,7 +969,7 @@ class SortedInDisk(object):
         :return: Sorted iterable of tuples key and value
         """
         return self.iter_with_key(delete_to_end=self.delete_to_end,
-                                  enable_multiprocessing=self.iter_multiprocessing,
+                                  enable_multiprocessing=self.read_process,
                                   queue_max_size=self.iter_m_queue_max_size,
                                   size_bucket_list=self.iter_size_bucket_list,
                                   min_size_bucket_list=self.iter_min_size_bucket_list,
@@ -982,9 +986,11 @@ class SortedInDisk(object):
 
         :return: Sorted iterable of values
         """
+
         def _iter_values(_self):
             for _, value in _self.items():
                 yield value
+
         return _iter_values(self)
 
     def keys(self):
@@ -998,9 +1004,11 @@ class SortedInDisk(object):
 
         :return: Sorted iterable of keys sorted
         """
+
         def _iter_keys(_self):
             for key, _ in _self.items():
                 yield key
+
         return _iter_keys(self)
 
     def join_multiprocess(self):
@@ -1056,9 +1064,9 @@ class SortedInDisk(object):
                                    reverse=False,
 
                                    count_insert_to_check=1000000,
-                                   max_process_size=1024*1024*1024,
+                                   max_write_process_size=1024 * 1024 * 1024,
 
-                                   max_process=None,
+                                   write_processes=None,
                                    queue_max_size=1000,
 
                                    ensure_space=False,
@@ -1076,12 +1084,16 @@ class SortedInDisk(object):
         :param func_value: function to extract the value of each value of it_values.
             If None is full value of it_values. By default: None
         :param reverse: True to reverse sort. By default: False
-        :param count_insert_to_check: counter to check if process have more size in memory than max_process_size.
+        :param count_insert_to_check: counter to check if process have more size in memory than max_write_process_size.
             By default: 1000000
-        :param max_process_size: max size in bytes to dump cache memory values to disk
+        :param max_write_process_size: max size in bytes to dump cache memory values to disk
             (only execute when count_insert_to_check is reached). If None, then not import psutil and then only
             check with count_insert_to_check. By default: 1024*1024*1024  # 1Gib
-        :param max_process: number of process to execute. If None then it is number of CPUs. By default: None
+        :param write_processes: number of process to execute. If None then it is number of CPUs. If you pass one list
+                     with paths pointing to folders, then each path implements one process (each process save data in
+                     its own path; you can use one path to several processes if you define same path several times in
+                     the list) and these paths are managed by `sorted_in_disk` (`tmp_dir` continues to be used for
+                     save general state information). By default: None
         :param queue_max_size: max number of elements in queue. If None then is the max by default. By default: 1000
         :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
             and wait for space. If False, then get and IOException if not enough space
@@ -1114,6 +1126,19 @@ class SortedInDisk(object):
         dict_info["reverse"] = reverse
         dict_info["empty"] = False
         dict_info["multiprocessing"] = True
+        dict_info["directories"].add(self.dir_tmp_path)
+
+        write_processes = multiprocessing.cpu_count() if write_processes is None else write_processes
+        if isinstance(write_processes, list):
+            list_processes_paths = write_processes
+            list_processes_paths = [create_tmp_folder(process_path) for process_path in list_processes_paths]
+            dict_info["directories"] |= set(list_processes_paths)
+        elif isinstance(write_processes, int):
+            if write_processes < 1:
+                raise ValueError("write_processes must be great than 0 or None")
+            list_processes_paths = [self.dir_tmp_path] * write_processes
+        else:
+            raise TypeError("Type object not allowed for write_processes")
 
         self.set_dict_saved_info(dict_info)
 
@@ -1134,9 +1159,8 @@ class SortedInDisk(object):
         logging.debug("[ROOT INITIALIZE CHILDS -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
 
         self.proxy_dict = self.manager.dict()
-        num_processors = multiprocessing.cpu_count() if max_process is None else max_process
-        for procesnum in range(0, num_processors):
 
+        for procesnum, process_path in enumerate(list_processes_paths, 0):
             if dict_info["dict_ipid_tup_full_list_parts"] is None:
                 next_id_path_to_keys_sorted = 0
             else:
@@ -1145,21 +1169,22 @@ class SortedInDisk(object):
                 except KeyError:
                     next_id_path_to_keys_sorted = 0
 
-            process = multiprocessing.Process(target=_mprocess, args=(proxy_queue,
-                                                                      proxy_start_event,
-                                                                      proxy_end_event,
-                                                                      procesnum,
+            process = multiprocessing.Process(target=_write_process,
+                                              args=(proxy_queue,
+                                                    proxy_start_event,
+                                                    proxy_end_event,
+                                                    procesnum,
 
-                                                                      self.dir_tmp_path,
-                                                                      self.proxy_dict,
+                                                    process_path,
+                                                    self.proxy_dict,
 
-                                                                      count_insert_to_check,
-                                                                      max_process_size,
-                                                                      reverse,
-                                                                      next_id_path_to_keys_sorted,
+                                                    count_insert_to_check,
+                                                    max_write_process_size,
+                                                    reverse,
+                                                    next_id_path_to_keys_sorted,
 
-                                                                      ensure_space,
-                                                                      self.logging_level))
+                                                    ensure_space,
+                                                    self.logging_level))
             process.daemon = True
             process.start()
             self.dict_num_procceses[procesnum] = process
@@ -1195,9 +1220,9 @@ class SortedInDisk(object):
                       reverse=False,
 
                       count_insert_to_check=1000000,
-                      max_process_size=1024 * 1024 * 1024,
+                      max_write_process_size=1024 * 1024 * 1024,
 
-                      max_process=None,
+                      write_processes=None,
                       queue_max_size=1000,
 
                       ensure_space=False,
@@ -1206,7 +1231,7 @@ class SortedInDisk(object):
                       min_size_bucket_list=10,
                       max_size_bucket_list=None):
         """
-        Choose save_and_sort_multiprocess of save_and_sort_mono depend on max_process
+        Choose save_and_sort_multiprocess of save_and_sort_mono depend on write_processes
 
         :param it_values: iterator of values
         :param func_key: function to extract the key of each value of it_values.
@@ -1214,12 +1239,16 @@ class SortedInDisk(object):
         :param func_value: function to extract the value of each value of it_values.
             If None is full value of it_values. By default: None
         :param reverse: True to reverse sort. By default: False
-        :param count_insert_to_check: counter to check if process have more size in memory than max_process_size.
+        :param count_insert_to_check: counter to check if process have more size in memory than max_write_process_size.
             By default: 1000000
-        :param max_process_size: max size in bytes to dump cache memory values to disk
+        :param max_write_process_size: max size in bytes to dump cache memory values to disk
             (only execute when count_insert_to_check is reached). If None, then not import psutil and then only
             check with count_insert_to_check. By default: 1024*1024*1024  # 1Gib
-        :param max_process: number of process to execute. If None then it is number of CPUs. By default: None
+            :param write_processes: number of process to execute. If None then it is number of CPUs. If you pass one list
+                     with paths pointing to folders, then each path implements one process (each process save data in
+                     its own path; you can use one path to several processes if you define same path several times in
+                     the list) and these paths are managed by `sorted_in_disk` (`tmp_dir` continues to be used for
+                     save general state information). By default: None
         :param queue_max_size: max number of elements in queue. If None then is the max by default. By default: 1000
         :param ensure_space: True to ensure disk space but is slowly. If not space then process launch warning message
             and wait for space. If False, then get and IOException if not enough space
@@ -1233,13 +1262,13 @@ class SortedInDisk(object):
                                      By default: None
         :return:
         """
-        if max_process is 0:
+        if write_processes is 0 or write_processes is []:
             self.save_and_sort_mono(it_values=it_values,
                                     func_key=func_key,
                                     func_value=func_value,
                                     reverse=reverse,
                                     count_insert_to_check=count_insert_to_check,
-                                    max_process_size=max_process_size,
+                                    max_write_process_size=max_write_process_size,
                                     ensure_space=ensure_space)
         else:
             self.save_and_sort_multiprocess(it_values=it_values,
@@ -1247,8 +1276,8 @@ class SortedInDisk(object):
                                             func_value=func_value,
                                             reverse=reverse,
                                             count_insert_to_check=count_insert_to_check,
-                                            max_process_size=max_process_size,
-                                            max_process=max_process,
+                                            max_write_process_size=max_write_process_size,
+                                            write_processes=write_processes,
                                             queue_max_size=queue_max_size,
                                             ensure_space=ensure_space,
                                             size_bucket_list=size_bucket_list,
@@ -1316,13 +1345,13 @@ class SortedInDisk(object):
 
             logging.debug("[ROOTG INITIALIZE CHILD -> ppid:{} | pid:{}]".format(os.getppid(), os.getpid()))
 
-            process = multiprocessing.Process(target=_mprocess_iter, args=(proxy_queue_iter,
-                                                                           proxy_queue_iter.get_init_args(),
-                                                                           proxy_start_event_iter,
-                                                                           proxy_end_event_iter,
-                                                                           dict_ipid_tup_full_list_parts,
-                                                                           reverse,
-                                                                           self.logging_level))
+            process = multiprocessing.Process(target=_read_process, args=(proxy_queue_iter,
+                                                                          proxy_queue_iter.get_init_args(),
+                                                                          proxy_start_event_iter,
+                                                                          proxy_end_event_iter,
+                                                                          dict_ipid_tup_full_list_parts,
+                                                                          reverse,
+                                                                          self.logging_level))
 
             process.daemon = True
             process.start()
@@ -1374,3 +1403,59 @@ class SortedInDisk(object):
             gc.collect()
             dict_info = self.join_multiprocess()
         return dict_info["total_counter"]
+
+    def visor(self):
+        """
+        Visor of information in state file.
+
+        Note: messages send to logging.info
+
+        :return:
+        """
+        from datetime import datetime
+        dict_info = self.get_dict_saved_info()
+
+        if dict_info["multiprocessing"]:
+            gc.collect()
+            dict_info = self.join_multiprocess()
+
+        logging.info("vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv")
+        logging.info("<< Information about Sorted In Disk instance >>")
+        logging.info("===============================================")
+
+        logging.info("Information saved in: {}".format(Path(self.dir_tmp_path, "dict_info.db")))
+        logging.info("* Controlled directories:")
+        for directory in dict_info["directories"]:
+            logging.info("      * {}".format(directory))
+
+        logging.info("* Reverse: {}".format(dict_info['reverse']))
+        logging.info("* Empty: {}".format(dict_info['empty']))
+        logging.info("* Multiprocessing: {}\n".format(dict_info['multiprocessing']))
+        logging.info("* Total counter: {}\n".format(dict_info['total_counter']))
+
+        dict_ipid_tup_full_list_parts = dict_info['dict_ipid_tup_full_list_parts']
+        if dict_ipid_tup_full_list_parts is None:
+            logging.info("  No data.")
+        else:
+            for process_num in sorted(dict_ipid_tup_full_list_parts.keys()):
+                path_full_data, \
+                list_paths_to_keys_sorted, \
+                next_id_path_to_keys_sorted, \
+                total_bulk_counter = dict_ipid_tup_full_list_parts[process_num]
+                logging.info("  [ Write process {} ]".format("Main" if process_num == -1 else process_num))
+                logging.info("  Manage bulk file {} (size: {}, mtime: {}) with {} values"
+                             "".format(path_full_data,
+                                       human_size(path_full_data.stat().st_size),
+                                       datetime.fromtimestamp(path_full_data.stat().st_mtime),
+                                       total_bulk_counter))
+                logging.info("  Presorted and indexation files:")
+
+                for path_to_keys_sorted in list_paths_to_keys_sorted:
+                    logging.info("      * {} (size: {}, mtime: {})"
+                                 "".format(path_to_keys_sorted,
+                                           human_size(path_to_keys_sorted.stat().st_size),
+                                           datetime.fromtimestamp(path_to_keys_sorted.stat().st_mtime)))
+
+                logging.info("  =============================================")
+
+        logging.info("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")

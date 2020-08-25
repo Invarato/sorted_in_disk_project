@@ -18,7 +18,12 @@ tmp_dir: temporal folder to sort in disk
 """
 path_to_file_read = Path("path/example_file_10mb.txt")
 path_to_file_write = None
-tmp_dir = Path("tmp_test_folder")
+
+tmp_dir = Path("tmp_test_folder_controller")
+write_processes_dirs = [Path("C:\\tmp_test_folder_process_1"),
+                        Path("D:\\tmp_test_folder_process_2"),
+                        Path("D:\\tmp_test_folder_process_2"),
+                        Path("J:\\tmp_test_folder_process_3")]
 
 
 def fun_prepline(count, line):
@@ -34,14 +39,18 @@ if __name__ == "__main__":
     sid = sorted_in_disk(read_iter_from_file(path_to_file_read),
                          key=lambda line: line.split("|")[2],
                          tmp_dir=tmp_dir,
-                         write_processes=None,
-                         read_process=True,
+                         only_one_read=True,
+                         append=True,
+                         write_processes=write_processes_dirs,
+                         read_process=False,
                          logging_level=logging.DEBUG)
     finish = datetime.now()
 
     print("[injecting] finish: {} | diff finish-start: {}".format(finish, finish-start))
 
     print("Counter lines injected: {}".format(len(sid)))
+
+    sid.visor()
 
     start = datetime.now()
     print("[reading] start: {}".format(start))
@@ -51,7 +60,6 @@ if __name__ == "__main__":
         for count, el in enumerate(sid, 1):
             if count % 100000 == 0:
                 print("[{}] Lines read so far: {}".format(datetime.now(), count))
-        print("Total lines readed: {}".format(count))
     else:
         count = write_iter_in_file(path_to_file_write, sid, fun_prepline=fun_prepline)
 
