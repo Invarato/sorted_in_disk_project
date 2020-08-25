@@ -84,6 +84,17 @@ for value in sorted_in_disk(...):
     pass
 ```
 
+If you have a big text file where each line has a key to sort, you can read file line to line quickly with
+`read_iter_from_file` in `sorted_in_disk.utils` package and get data sorted. Example (key supposes file have 
+lines similar to "key1|value1"):
+```python
+from sorted_in_disk.utils import read_iter_from_file
+
+for sorted_line in sorted_in_disk(read_iter_from_file("path/to/your/file/to/read"),
+                                  key=lambda line: line.split("|")[0]):
+    print(sorted_line)
+```
+
 
 ### In comparison with sorted method
 `sorted_in_disk` is similar to oficial `sorted` method (https://docs.python.org/3/library/functions.html#sorted), with
