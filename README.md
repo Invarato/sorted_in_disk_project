@@ -12,17 +12,16 @@ real time while return sorted data to you (in injection time perform a quick and
 
 
 ## Table of contents
-* [Technologies](#technologies)
-* [Setup](#setup)
-* [Quick use](#Quick use)
-* [Algorithm lifecycle](#Algorithm lifecycle)
-* [Performance](#Performance)
-* [Documentation](#Documentation)
-* [Limitations](#Limitations)
-* [About this algorithm](#About this algorithm)
-* [Is useful for you?](#Is useful for you?)
-* [Contact](#Contact)
-* [License](#License)
+ * [Technologies](#technologies)
+ * [Setup](#setup)
+ * [Quick use](#quick-use)
+ * [Algorithm lifecycle](#algorithm-lifecycle)
+ * [Performance](#performance)
+ * [Documentation](#documentation)
+ * [Limitations](#limitations)
+ * [About this algorithm](#about-this-algorithm)
+ * [Is useful for you?](#is-useful-for-you?)
+ * [Contact](#contact)
 
 
 ## Technologies
@@ -575,8 +574,4 @@ doing this project. Thank you.
 
 
 ## Contact
-If you want to contact me you can reach me at r.invarato@gmail.com.
-
-
-## License
-This project uses the following license: MIT License.
+Contact me via: r.invarato@gmail.com
