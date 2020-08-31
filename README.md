@@ -84,12 +84,20 @@ for value in sorted_in_disk(...):
     pass
 ```
 
+Too, if you prefer you can use the short alias `sortedid` (contract of `sorted_in_disk`):
+```python
+from sorted_in_disk import sortedid
+
+for element in sortedid(...):
+    pass
+```
+
 If you have a big text file where each line has a key to sort, you can read file line to line quickly with
-`read_iter_from_file` in `sorted_in_disk.utils` package to pass an iterable for lines in the file (this way not read 
+`read_iter_from_file` to pass an iterable for lines in the file (this way not read 
 full file in one time, read line per line in a generator; only consume one line size in RAM memory). 
 Example (key supposes file have lines similar to "key1|value1"):
 ```python
-from sorted_in_disk.utils import read_iter_from_file
+from sorted_in_disk import read_iter_from_file, sorted_in_disk
 
 iterable_with_unsorted_data = read_iter_from_file("path/to/your/file/to/read")
 
@@ -553,7 +561,7 @@ valE,key2,valF
 
 You can inject use util `read_iter_from_file` in this way:
 ```python
-from sorted_in_disk.utils import read_iter_from_file
+from sorted_in_disk import read_iter_from_file
 
 sid = sorted_in_disk(read_iter_from_file("path/to/file/to/read"),
                      key=lambda line: line.split(",")[1])
@@ -561,7 +569,7 @@ sid = sorted_in_disk(read_iter_from_file("path/to/file/to/read"),
 
 And to write sorted content in a different file:
 ```python
-from sorted_in_disk.utils import write_iter_in_file
+from sorted_in_disk import write_iter_in_file
 
 count = write_iter_in_file("path/to/file/to/write", sid)
 
